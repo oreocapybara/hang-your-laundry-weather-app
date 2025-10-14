@@ -14,76 +14,88 @@ interface WeatherData {
 function LaundryWeather() {
 	const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
 
-
-	function getLocation() {
-		return new Promise((success, error) => {
-		navigator.geolocation.getCurrentPosition(success, error)});
+	function getLocation(): Promise<GeolocationPosition> {
+		return new Promise((resolve, reject) => {
+			navigator.geolocation.getCurrentPosition(resolve, reject, {enableHighAccuracy: true});
+		});
 	}
 
 	useEffect(() => {
-		async function getWeather() {
+		async function fetchWeatherData() {
+			let position;
 
 			try {
-				const position = await getLocation();
+				position = await getLocation();
 			} catch (error) {
-				console
-			}
-			const params = {
-				latitude: position.coords.latitude, // Example: Manila
-				longitude: position.coords.longitude,
-				hourly: [
-					"temperature_2m",
-					"precipitation_probability",
-					"wind_speed_10m",
-					"precipitation",
-					"relative_humidity_2m",
-					"cloud_cover",
-				],
-			};
-
-			const url = "https://api.open-meteo.com/v1/forecast";
-			const responses = await fetchWeatherApi(url, params);
-			const response = responses[0];
-
-			const utcOffsetSeconds = response.utcOffsetSeconds();
-			const hourly = response.hourly();
-
-			if (!hourly) {
-				console.error("No hourly data available");
-				return;
+				console.error("Location error:", error);
+				// Fallback to Manila coordinates
+				position = {
+					coords: {
+						latitude: 14.5995,
+						longitude: 120.9842,
+					},
+				} as GeolocationPosition;
 			}
 
-			const processedData: WeatherData = {
-				time: [
-					...Array(
-						(Number(hourly.timeEnd()) - Number(hourly.time())) /
-							hourly.interval()
+			try {
+				const params = {
+					latitude: position.coords.latitude,
+					longitude: position.coords.longitude,
+					hourly: [
+						"precipitation_probability",
+						"precipitation",
+						"temperature_2m",
+						"wind_speed_10m",
+						"relative_humidity_2m",
+						"cloud_cover",
+					],
+				};
+
+				const url = "https://api.open-meteo.com/v1/forecast";
+				const responses = await fetchWeatherApi(url, params);
+				const response = responses[0];
+
+				const utcOffsetSeconds = response.utcOffsetSeconds();
+				const hourly = response.hourly();
+
+				if (!hourly) {
+					console.error("No hourly data available");
+					return;
+				}
+
+				const processedData: WeatherData = {
+					time: [
+						...Array(
+							(Number(hourly.timeEnd()) - Number(hourly.time())) /
+								hourly.interval()
+						),
+					].map(
+						(_, i) =>
+							new Date(
+								(Number(hourly.time()) +
+									i * hourly.interval() +
+									utcOffsetSeconds) *
+									1000
+							)
 					),
-				].map(
-					(_, i) =>
-						new Date(
-							(Number(hourly.time()) +
-								i * hourly.interval() +
-								utcOffsetSeconds) *
-								1000
-						)
-				),
-				temperature_2m: hourly.variables(0)?.valuesArray() || null,
-				precipitation_probability: hourly.variables(1)?.valuesArray() || null,
-				wind_speed_10m: hourly.variables(2)?.valuesArray() || null,
-				precipitation: hourly.variables(3)?.valuesArray() || null,
-				relative_humidity_2m: hourly.variables(4)?.valuesArray() || null,
-				cloud_cover: hourly.variables(5)?.valuesArray() || null,
-			};
+					temperature_2m: hourly.variables(0)?.valuesArray() || null,
+					precipitation_probability: hourly.variables(1)?.valuesArray() || null,
+					wind_speed_10m: hourly.variables(2)?.valuesArray() || null,
+					precipitation: hourly.variables(3)?.valuesArray() || null,
+					relative_humidity_2m: hourly.variables(4)?.valuesArray() || null,
+					cloud_cover: hourly.variables(5)?.valuesArray() || null,
+				};
 
-			setWeatherData(processedData);
+				setWeatherData(processedData);
+			} catch (error) {
+				console.error("Weather API error:", error);
+			}
 		}
 
-		getWeather();
+		fetchWeatherData();
 	}, []);
 
 	if (!weatherData) return <p>Loading weather...</p>;
-	console.table(weatherData);
 
 	return (
 		<div>
@@ -94,6 +106,9 @@ function LaundryWeather() {
 						{time.toLocaleString()} → 🌧️ Rain Chance:{" "}
 						{weatherData.precipitation_probability?.[i] ?? "N/A"}% | 💧
 						Precipitation: {weatherData.precipitation?.[i] ?? "N/A"}mm
+						
+						{weatherData.wind_speed_10m?.[i] ?? "n/A\n"}
+
 					</li>
 				))}
 			</ul>
