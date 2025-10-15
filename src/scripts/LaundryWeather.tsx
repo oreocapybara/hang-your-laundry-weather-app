@@ -9,6 +9,7 @@ interface WeatherData {
 	precipitation: Float32Array | null;
 	relative_humidity_2m: Float32Array | null;
 	cloud_cover: Float32Array | null;
+	is_day: Float32Array | null;
 }
 
 function LaundryWeather() {
@@ -30,8 +31,8 @@ function LaundryWeather() {
 
 			const options = {
 				enableHighAccuracy: true,
-				timeout: 30000, // 10 seconds
-				maximumAge: 0, // 5 minutes cache
+				timeout: 10000, // 10 seconds
+				maximumAge: 300000, // 5 minutes cache
 			};
 
 			navigator.geolocation.getCurrentPosition(
@@ -101,6 +102,7 @@ function LaundryWeather() {
 						"wind_speed_10m",
 						"relative_humidity_2m",
 						"cloud_cover",
+						"is_day",
 					],
 				};
 
@@ -131,12 +133,13 @@ function LaundryWeather() {
 									1000
 							)
 					),
-					temperature_2m: hourly.variables(0)?.valuesArray() || null,
-					precipitation_probability: hourly.variables(1)?.valuesArray() || null,
-					wind_speed_10m: hourly.variables(2)?.valuesArray() || null,
-					precipitation: hourly.variables(3)?.valuesArray() || null,
+					precipitation_probability: hourly.variables(0)?.valuesArray() || null,
+					precipitation: hourly.variables(1)?.valuesArray() || null,
+					temperature_2m: hourly.variables(2)?.valuesArray() || null,
+					wind_speed_10m: hourly.variables(3)?.valuesArray() || null,
 					relative_humidity_2m: hourly.variables(4)?.valuesArray() || null,
 					cloud_cover: hourly.variables(5)?.valuesArray() || null,
+					is_day: hourly.variables(6)?.valuesArray() || null,
 				};
 
 				setWeatherData(processedData);
@@ -151,12 +154,20 @@ function LaundryWeather() {
 	}, []);
 
 	if (!weatherData) return <p>Loading weather...</p>;
+	console.table(weatherData);
 
 	const { score, bestHoursList, neutralHoursList } =
 		find_best_drying_hours(weatherData);
 
+	// Calculate overall score (average of all hourly scores)
+	const averageScore =
+		score.length > 0
+			? Math.round((score.reduce((sum, s) => sum + s, 0) / score.length) * 10) /
+			  10
+			: 0;
+
 	return (
-		<div>
+		<div style={{ color: "black" }}>
 			<h2>🧺 Laundry Weather Forecast</h2>
 
 			{/* Location Status */}
@@ -185,6 +196,29 @@ function LaundryWeather() {
 			>
 				<h3>📊 Today's Laundry Recommendations</h3>
 
+				{/* Overall Drying Score */}
+				<div
+					style={{
+						marginBottom: "15px",
+						padding: "10px",
+						backgroundColor: "#e8f5e8",
+						borderRadius: "5px",
+					}}
+				>
+					<h4 style={{ margin: "0 0 5px 0", color: "#2d5a2d" }}>
+						🎯 Overall Drying Score: <strong>{averageScore}/10</strong>
+					</h4>
+					<p style={{ margin: "0", fontSize: "0.9em", color: "#555" }}>
+						{averageScore >= 8
+							? "🟢 Excellent drying conditions!"
+							: averageScore >= 6
+							? "🟡 Good drying conditions"
+							: averageScore >= 4
+							? "🟠 Fair drying conditions"
+							: "🔴 Poor drying conditions"}
+					</p>
+				</div>
+
 				{/* Best Hours */}
 				{bestHoursList.length > 0 ? (
 					<div style={{ marginBottom: "10px" }}>
@@ -193,22 +227,22 @@ function LaundryWeather() {
 						</h4>
 						<ul>
 							{bestHoursList
-								.filter((time) => {
+								.filter((item) => {
 									const today = new Date();
-									return time.toDateString() === today.toDateString();
+									return item.time.toDateString() === today.toDateString();
 								})
-								.map((time, index) => (
+								.map((item, index) => (
 									<li
 										key={index}
 										style={{ color: "green", fontWeight: "bold" }}
 									>
-										{time.toLocaleTimeString()}
+										{item.time.toLocaleTimeString()} (Score: {item.score}/10)
 									</li>
 								))}
 						</ul>
-						{bestHoursList.filter((time) => {
+						{bestHoursList.filter((item) => {
 							const today = new Date();
-							return time.toDateString() === today.toDateString();
+							return item.time.toDateString() === today.toDateString();
 						}).length === 0 && (
 							<p style={{ color: "orange" }}>⚠️ No ideal drying times today</p>
 						)}
@@ -225,13 +259,13 @@ function LaundryWeather() {
 						</h4>
 						<ul>
 							{neutralHoursList
-								.filter((time) => {
+								.filter((item) => {
 									const today = new Date();
-									return time.toDateString() === today.toDateString();
+									return item.time.toDateString() === today.toDateString();
 								})
-								.map((time, index) => (
+								.map((item, index) => (
 									<li key={index} style={{ color: "orange" }}>
-										{time.toLocaleTimeString()}
+										{item.time.toLocaleTimeString()} (Score: {item.score}/10)
 									</li>
 								))}
 						</ul>
@@ -239,13 +273,13 @@ function LaundryWeather() {
 				)}
 
 				{/* No good times message */}
-				{bestHoursList.filter((time) => {
+				{bestHoursList.filter((item) => {
 					const today = new Date();
-					return time.toDateString() === today.toDateString();
+					return item.time.toDateString() === today.toDateString();
 				}).length === 0 &&
-					neutralHoursList.filter((time) => {
+					neutralHoursList.filter((item) => {
 						const today = new Date();
-						return time.toDateString() === today.toDateString();
+						return item.time.toDateString() === today.toDateString();
 					}).length === 0 && (
 						<p style={{ color: "red", fontWeight: "bold" }}>
 							❌ Not recommended to hang laundry today - poor drying conditions
@@ -253,8 +287,8 @@ function LaundryWeather() {
 					)}
 			</div>
 
-			{/* Today's Detailed Weather Data */}
-			<h3>🌤️ Today's Detailed Weather</h3>
+			{/* Today's Detailed Weather Data with Individual Scores */}
+			<h3>🌤️ Today's Detailed Weather & Drying Scores</h3>
 			<ul>
 				{weatherData.time
 					.map((time, i) => ({ time, index: i }))
@@ -262,17 +296,33 @@ function LaundryWeather() {
 						const today = new Date();
 						return time.toDateString() === today.toDateString();
 					})
-					.map(({ time, index: i }) => (
-						<li key={i}>
-							{time.toLocaleTimeString()} → 🌧️ Rain Chance:{" "}
-							{weatherData.precipitation_probability?.[i] ?? "N/A"}% | 💧
-							Precipitation: {weatherData.precipitation?.[i] ?? "N/A"}mm | 🌡️
-							Temp: {weatherData.temperature_2m?.[i] ?? "N/A"}°C | 💨 Wind:{" "}
-							{weatherData.wind_speed_10m?.[i] ?? "N/A"} km/h | 💧 Humidity:{" "}
-							{weatherData.relative_humidity_2m?.[i] ?? "N/A"}% | ☁️ Cloud
-							Cover: {weatherData.cloud_cover?.[i] ?? "N/A"}%
-						</li>
-					))}
+					.map(({ time, index: i }) => {
+						const hourScore = score[i] || 0;
+						const scoreColor =
+							hourScore >= 8 ? "green" : hourScore >= 5 ? "orange" : "red";
+						const scoreEmoji =
+							hourScore >= 8 ? "🟢" : hourScore >= 5 ? "🟡" : "🔴";
+
+						return (
+							<li key={i} style={{ marginBottom: "8px" }}>
+								<strong style={{ color: scoreColor }}>
+									{scoreEmoji} {time.toLocaleTimeString()} - Score: {hourScore}
+									/10
+								</strong>
+								<br />
+								<span style={{ fontSize: "0.9em", color: "#666" }}>
+									{weatherData.is_day?.[i] === 1 ? "☀️" : "🌙"}{" "}
+									{weatherData.is_day?.[i] === 1 ? "Day" : "Night"} | 🌧️ Rain:{" "}
+									{weatherData.precipitation_probability?.[i] ?? "N/A"}% | 💧
+									Precip: {weatherData.precipitation?.[i] ?? "N/A"}mm | 🌡️ Temp:{" "}
+									{weatherData.temperature_2m?.[i] ?? "N/A"}°C | 💨 Wind:{" "}
+									{weatherData.wind_speed_10m?.[i] ?? "N/A"} km/h | 💧 Humidity:{" "}
+									{weatherData.relative_humidity_2m?.[i] ?? "N/A"}% | ☁️ Cloud:{" "}
+									{weatherData.cloud_cover?.[i] ?? "N/A"}%
+								</span>
+							</li>
+						);
+					})}
 			</ul>
 		</div>
 	);
